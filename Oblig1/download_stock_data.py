@@ -3,7 +3,7 @@
 import yfinance as yf
 import pandas as pd
 
-tickers = ['JPM', 'XOM', 'NVDA', 'NAS.OL', 'META']
+tickers = ['JPM', 'TSLA', 'NVDA', 'EQNR', 'META']
 
 daily_data = yf.download(tickers, period='1y', interval='1d')
 daily_data.to_csv('daily_stock_data.csv')

@@ -62,13 +62,12 @@ class StockAnalysis:
         w = result.x
         return w
     
-    def calculate_efficient_frontier(self, num_portofolios = 100):
+    def calculate_efficient_frontier(self, num_portofolios=100):
         mean_returns, _ = self.calculate_expected_returns_and_volatility()
         covariance_matrix = self.calculate_covariance_matrix()
         num_assets = len(mean_returns)
 
-    
-        target_returns = np.linspace(min(mean_returns), max(mean_returns), num_portofolios)
+        target_returns = np.linspace(min(mean_returns) * 0.5, max(mean_returns) * 2, num_portofolios)
 
         frontier_volatilities = []
         frontier_returns = []
@@ -76,70 +75,119 @@ class StockAnalysis:
         for r in target_returns:
             w = self.find_min_var(r)
             weighted_r = self.weighted_return(w)
-            weighted_var = self.weighted_variance(w, self.calculate_covariance_matrix())
+            weighted_var = self.weighted_variance(w, covariance_matrix)
+            weighted_std = np.sqrt(weighted_var)
 
             frontier_returns.append(weighted_r)
-            frontier_volatilities.append(weighted_var)
-            
+            frontier_volatilities.append(weighted_std)
         return frontier_returns, frontier_volatilities
     
     def plot_efficient_frontier(self):
-            returns, volatilities = self.calculate_efficient_frontier()
-            plt.figure(figsize=(10, 6))
-            plt.plot(volatilities, returns, label='Efficient Frontier', color='blue')
+        returns, volatilities = self.calculate_efficient_frontier()
+        plt.figure(figsize=(10, 6))
+        plt.plot(volatilities, returns, label='Efficient Frontier', color='blue')
+        
+        expected_returns, individual_volatilities = self.calculate_expected_returns_and_volatility()
+        
+        plt.scatter(individual_volatilities, expected_returns, marker='o', color='red', label='Individual Stocks')
+        
+        asset_names = self.data['Adj Close'].columns
+        for i, asset in enumerate(asset_names):
+            plt.annotate(asset, 
+                        (individual_volatilities[i], expected_returns[i]),
+                        textcoords="offset points", 
+                        xytext=(5,5),  
+                        ha='left', 
+                        fontsize=8,
+                        color='black')
+        
 
-            # Add titles and labels
-            plt.title("Efficient Frontier", fontsize=16)
-            plt.xlabel("Volatility (Standard Deviation)", fontsize=12)
-            plt.ylabel("Expected Return", fontsize=12)
+        plt.title("Efficient Frontier", fontsize=16)
+        plt.xlabel("Volatility (Standard Deviation)", fontsize=12)
+        plt.ylabel("Expected Return", fontsize=12)
 
-            # Add a legend
-            plt.legend()
+        plt.legend()
 
-            # Show the plot
-            plt.grid(True)
-            plt.show()
+        plt.grid(True)
+        plt.savefig('EfficientFrontier.png')  
+        plt.show()
+    def find_global_min_var(self):
+        covariance_matrix = self.calculate_covariance_matrix()
+        num_assets = len(covariance_matrix)
+        linear_constraint = LinearConstraint(np.ones(num_assets), 1, 1)
 
+        bounds = Bounds(0, 1)
+
+        w_0 = num_assets * [1. / num_assets]
+
+        def portfolio_variance(w):
+            return np.dot(w.T, np.dot(covariance_matrix, w))
+
+        result = minimize(portfolio_variance, w_0, method='SLSQP', bounds=bounds, constraints=[linear_constraint])
+
+        w = result.x
+        min_variance = result.fun
+        return w, min_variance
     
-    def plot_return_densities(self, ax, label_prefix):
+    def plot_return_densities(self, axs, label_prefix):
         returns = self.calculate_returns()
         expected_returns, volatilities = self.calculate_expected_returns_and_volatility()
 
         asset_names = self.data['Adj Close'].columns
         limit = max(abs(returns.min().min()), abs(returns.max().max()))
 
-        for i in range(len(asset_names)):
-            asset_returns = returns[asset_names[i]]
-            mu, std = expected_returns[i], volatilities[i]  
-            ax[i].hist(asset_returns, bins=30, density = True)
+        for i, asset in enumerate(asset_names):
+            asset_returns = returns[asset].dropna()
+            mu, std = expected_returns[asset], volatilities[asset]
+            axs[i].hist(asset_returns, bins=30, density=True, alpha=0.6, color='skyblue', edgecolor='black')
             x = np.linspace(-limit, limit, 100)
-            ax[i].plot(x, norm.pdf(x, mu, std), 'k', linewidth=2)
-            ax[i].set_xlim(-limit, limit)
-            ax[i].set_title(f'{label_prefix} Returns for {asset_names[i]}', fontsize=8)
-            ax[i].set_ylabel('Density', fontsize=8)
-            ax[i].tick_params(axis='x', labelsize=8)
-            ax[i].tick_params(axis='y', labelsize=8)
+            axs[i].plot(x, norm.pdf(x, mu, std), 'k', linewidth=2)
+            axs[i].set_xlim(-limit, limit)
+            axs[i].set_title(f'{label_prefix} Returns for {asset}', fontsize=10)
+            axs[i].set_xlabel('Return', fontsize=8)
+            axs[i].set_ylabel('Density', fontsize=8)
+            axs[i].tick_params(axis='both', labelsize=8)
+        plt.tight_layout()
+        plt.savefig(f'{label_prefix}_Return_Densities.png')  
 
-daily = StockAnalysis('G:/My Drive/UiO/Semester3/MatFin/daily_stock_data.csv')
-weekly = StockAnalysis('G:/My Drive/UiO/Semester3/MatFin/weekly_stock_data.csv')
+daily = StockAnalysis('daily_stock_data.csv')
+weekly = StockAnalysis('weekly_stock_data.csv')
 
 cov_matrix = daily.calculate_covariance_matrix()
-print("Covariance Matrix:")
+print("Daily Covariance Matrix:")
 print(cov_matrix)
 
 corr_matrix = daily.calculate_correlation_matrix()
-print("Correlation Matrix:")
+print("\nDaily Correlation Matrix:")
 print(corr_matrix)
 
 max_assets = max(len(daily.data['Adj Close'].columns), len(weekly.data['Adj Close'].columns))
 
-fig, axs = plt.subplots(max_assets, 2, figsize=(16, max_assets * 5))
+fig_daily, axs_daily = plt.subplots(max_assets, 1, figsize=(10, max_assets * 3), constrained_layout=True)
+if max_assets == 1:
+    axs_daily = [axs_daily] 
+daily.plot_return_densities(axs_daily, 'Daily')
+plt.show()
 
-daily.plot_return_densities(axs[:, 0], 'Daily')
-weekly.plot_return_densities(axs[:, 1], 'Weekly')
+fig_weekly, axs_weekly = plt.subplots(max_assets, 1, figsize=(10, max_assets * 3), constrained_layout=True)
+if max_assets == 1:
+    axs_weekly = [axs_weekly]  
+weekly.plot_return_densities(axs_weekly, 'Weekly')
+plt.show()
 
 plt.tight_layout()
 plt.show()
 
-daily.plot_efficient_frontier()
 
+weekly.plot_efficient_frontier()
+
+w, min_variance = weekly.find_global_min_var()
+
+print("Global Minimum Variance Portfolio Weights:")
+for asset, weight in zip(weekly.data['Adj Close'].columns, w):
+    print(f"{asset}: {weight:.4f}")
+min_port_return = weekly.weighted_return(w)
+min_port_volatility = np.sqrt(min_variance)
+print(f"\nMinimum Variance: {min_variance:.6f}")
+print(f"Expected Return of Minimum Variance Portfolio: {min_port_return:.6f}")
+print(f"Volatility (Std Dev) of Minimum Variance Portfolio: {min_port_volatility:.6f}")
